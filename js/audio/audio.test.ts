@@ -441,6 +441,72 @@ describe("Events: upload via file input", () => {
 		});
 		expect(error).toHaveBeenCalledWith("File too large");
 	});
+
+	// Firefox reports `.ogg` files as `application/ogg` and Chrome and Firefox
+	// both report `.webm` files as `video/webm`, so these are not `audio/*`.
+	test.each([
+		["clip.ogg", "application/ogg"],
+		["clip.webm", "video/webm"]
+	])("selecting %s reported as %s is accepted", async (name, type) => {
+		const { listen } = await render(Audio, upload_props);
+
+		const upload = listen("upload");
+		const warning = listen("warning");
+
+		const data_transfer = new DataTransfer();
+		data_transfer.items.add(new File([make_wav_blob()], name, { type }));
+		const input =
+			document.querySelector<HTMLInputElement>("input[type='file']")!;
+		input.files = data_transfer.files;
+		await fireEvent.change(input);
+
+		await waitFor(() => {
+			expect(upload).toHaveBeenCalledTimes(1);
+		});
+		expect(warning).not.toHaveBeenCalled();
+	});
+
+	test("dropping a .ogg file reported as application/ogg is accepted", async () => {
+		const { listen, getByLabelText } = await render(Audio, upload_props);
+
+		const upload = listen("upload");
+		const warning = listen("warning");
+
+		const data_transfer = new DataTransfer();
+		data_transfer.items.add(
+			new File([make_wav_blob()], "clip.ogg", { type: "application/ogg" })
+		);
+		getByLabelText("audio.drop_to_upload").dispatchEvent(
+			new DragEvent("drop", { dataTransfer: data_transfer, bubbles: true })
+		);
+
+		await waitFor(() => {
+			expect(upload).toHaveBeenCalledTimes(1);
+		});
+		expect(warning).not.toHaveBeenCalled();
+	});
+
+	test("selecting a non-audio file is still rejected", async () => {
+		const { listen } = await render(Audio, upload_props);
+
+		const upload = listen("upload");
+		const warning = listen("warning");
+
+		const data_transfer = new DataTransfer();
+		data_transfer.items.add(
+			new File(["%PDF-1.4"], "doc.pdf", { type: "application/pdf" })
+		);
+		const input =
+			document.querySelector<HTMLInputElement>("input[type='file']")!;
+		input.files = data_transfer.files;
+		await fireEvent.change(input);
+
+		await waitFor(() => {
+			expect(warning).toHaveBeenCalledTimes(1);
+		});
+		expect(warning.mock.calls[0][0]).toContain("Invalid file type: doc.pdf");
+		expect(upload).not.toHaveBeenCalled();
+	});
 });
 
 function make_wav_blob(): Blob {
